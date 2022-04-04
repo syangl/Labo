@@ -11,6 +11,9 @@
 #pragma once
 
 #include "alex_base.h"
+#include<arm_neon.h>
+#include<time.h>
+#include "alex.h"
 
 // Whether we store key and payload arrays separately in data nodes
 // By default, we store them separately
@@ -566,6 +569,9 @@ class AlexDataNode : public AlexNode<T, P> {
     return num_keys;
   }
 
+  /***********************************************************************************************************************/
+  /***************************************************指数搜索判断函数******************************************************/
+  /***********************************************************************************************************************/
   // True if a < b
   template <class K>
   forceinline bool key_less(const T& a, const K& b) const {
@@ -595,6 +601,11 @@ class AlexDataNode : public AlexNode<T, P> {
   forceinline bool key_equal(const T& a, const K& b) const {
     return !key_less_(a, b) && !key_less_(b, a);
   }
+  /***********************************************************************************************************************/
+  /***************************************************指数搜索判断函数******************************************************/
+  /***********************************************************************************************************************/
+
+
 
   /*** Iterator ***/
 
@@ -1452,13 +1463,14 @@ class AlexDataNode : public AlexNode<T, P> {
 
   // Searches for the last non-gap position equal to key
   // If no positions equal to key, returns -1
+
+
   int find_key(const T& key) {
     num_lookups_++;
     int predicted_pos = predict_position(key);
-
     // The last key slot with a certain value is guaranteed to be a real key
     // (instead of a gap)
-    int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
+    int pos = simd_search(predicted_pos, key) - 1;    
     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
       return -1;
     } else {
@@ -1473,7 +1485,7 @@ class AlexDataNode : public AlexNode<T, P> {
     num_lookups_++;
     int predicted_pos = predict_position(key);
 
-    int pos = exponential_search_lower_bound(predicted_pos, key);
+    int pos = simd_search(predicted_pos, key);
     return get_next_filled_position(pos, false);
   }
 
@@ -1484,7 +1496,7 @@ class AlexDataNode : public AlexNode<T, P> {
     num_lookups_++;
     int predicted_pos = predict_position(key);
 
-    int pos = exponential_search_upper_bound(predicted_pos, key);
+    int pos = simd_search(predicted_pos, key);
     return get_next_filled_position(pos, false);
   }
 
@@ -1498,7 +1510,7 @@ class AlexDataNode : public AlexNode<T, P> {
         predict_position(key);  // first use model to get prediction
 
     // insert to the right of duplicate keys
-    int pos = exponential_search_upper_bound(predicted_pos, key);
+    int pos = simd_search(predicted_pos, key);
     if (predicted_pos <= pos || check_exists(pos)) {
       return {pos, pos};
     } else {
@@ -1547,8 +1559,139 @@ class AlexDataNode : public AlexNode<T, P> {
   int upper_bound(const K& key) {
     num_lookups_++;
     int position = predict_position(key);
-    return exponential_search_upper_bound(position, key);
+    return simd_search(position, key);
   }
+
+
+  /***************************************************************************************************************************/
+  /*********************************************************指数查找改为SIMD（arm）********************************************/
+  /***************************************************************************************************************************/
+template <class K>
+inline int simd_search(int m, const K &key)
+{
+  /********************************************texttime******************************************************/
+  struct timespec sts,ets;
+  timespec_get(&sts, TIME_UTC);
+  /********************************************texttime******************************************************/
+  // to measure
+
+  int size = data_capacity_;
+  int32x4_t keys = vmovq_n_s32(key);
+  //cout<<vgetq_lane_s32(keys,0);cout<<vgetq_lane_s32(keys,1);cout<<vgetq_lane_s32(keys,2);cout<<vgetq_lane_s32(keys,3)<<endl;
+  int32x4_t m_zero = vmovq_n_s32(0);
+  int32x4_t m_load;                 //加载数组4个元素
+  int32x4_t flags = vmovq_n_s32(0); // 比较结果标志
+  int bound;
+  if (key_slots_[m]>key)//预测位置大于key实际位置
+  {
+    //cout<<"key_slots_ "<<key_slots_[m]<<" enter1"<<endl;
+    for (int j = m-4; j>=0; j -= 4)
+    {
+      ////从[0:m-4]搜索key，每次检查大小为4的向量keys，从预测位置m开始从右至左搜索以减少搜索次数。
+      ////加载数组中的四个key到m_load向量
+      m_load = vld1q_s32(key_slots_+j);
+      //cout<<"m_load "<<vgetq_lane_s32(m_load,0);cout<<vgetq_lane_s32(m_load,1);cout<<vgetq_lane_s32(m_load,2);cout<<vgetq_lane_s32(m_load,3)<<endl;
+      ////比较结果标志位flags
+      flags = (int32x4_t)vceqq_s32(keys, m_load);
+      //cout<<"flags1 "<<vgetq_lane_s32(flags,0);cout<<vgetq_lane_s32(flags,1);cout<<vgetq_lane_s32(flags,2);cout<<vgetq_lane_s32(flags,3)<<endl;
+      ////令flags向量每个元素为0或1
+      flags = vsubq_s32(m_zero, flags);
+      //cout<<"flags2 "<<vgetq_lane_s32(flags,0);cout<<vgetq_lane_s32(flags,1);cout<<vgetq_lane_s32(flags,2);cout<<vgetq_lane_s32(flags,3)<<endl;
+      ////调换flags高两位和低两位
+      int32x4_t tmp = vcombine_s32(vget_high_s32(flags), vget_low_s32(flags));
+      ////flags和倒flags相加
+      flags = vaddq_s32(flags, tmp);
+      //cout<<"flags3 "<<vgetq_lane_s32(flags,0);cout<<vgetq_lane_s32(flags,1);cout<<vgetq_lane_s32(flags,2);cout<<vgetq_lane_s32(flags,3)<<endl;
+      
+      int32x4_t final_flag = vcombine_s32(vget_low_s32(flags), vget_low_s32(flags));
+      ////把flags的2和3位移至0和1位，再复制给2和3位
+      int32_t tmp_arr[4];
+      tmp_arr[0]=tmp_arr[2]=vgetq_lane_s32(final_flag, 1);///////////////////////////////////不太好
+      tmp_arr[1]=tmp_arr[3]=vgetq_lane_s32(final_flag, 2);
+      tmp = vld1q_s32(tmp_arr);
+      //cout<<"tmp "<<vgetq_lane_s32(tmp,0);cout<<vgetq_lane_s32(tmp,1);cout<<vgetq_lane_s32(tmp,2);cout<<vgetq_lane_s32(tmp,3)<<endl;
+      ////flags和移位后的flags相加，结果为1111或0000
+      final_flag = vaddq_s32(final_flag, tmp);
+      //cout<<"flags4 "<<vgetq_lane_s32(final_flag,0);cout<<vgetq_lane_s32(final_flag,1);cout<<vgetq_lane_s32(final_flag,2);cout<<vgetq_lane_s32(final_flag,3)<<endl;
+      ////res标志是否找到key
+      int32_t res = vgetq_lane_s32(final_flag, 3);
+      //cout<<"res "<<res<<endl;
+      if (res == 1)
+      {////key在此向量中，确定其具体位置
+        for (int i = j; i < j + 4; i++)
+        {
+          if (key_equal(key_slots_[i],key))
+          {
+            //cout<<"ret "<<i<<endl;
+            return bound = i;
+          }
+        }
+      }
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+      if (key_equal(key_slots_[i],key))
+      {
+        return bound = i;
+      }
+    }
+  }
+  else
+  {
+    //cout<<"key_slots_ "<<key_slots_[m]<<" enter2"<<endl;
+    for (int j = m; j < size; j += 4)
+    {
+
+      m_load = vld1q_s32(key_slots_ + j);
+      flags = (int32x4_t)vceqq_s32(keys, m_load);
+      flags = vsubq_s32(m_zero, flags);
+      int32x4_t tmp = vcombine_s32(vget_high_s32(flags), vget_low_s32(flags));
+      flags = vaddq_s32(flags, tmp);
+      int32x4_t final_flag = vcombine_s32(vget_low_s32(flags), vget_low_s32(flags));
+      int32_t tmp_arr[4];
+      tmp_arr[0]=tmp_arr[2]=vgetq_lane_s32(final_flag, 1);
+      tmp_arr[1]=tmp_arr[3]=vgetq_lane_s32(final_flag, 2);
+      tmp = vld1q_s32(tmp_arr);
+      final_flag = vaddq_s32(final_flag, tmp);
+      int32_t res = vgetq_lane_s32(final_flag, 3);
+      if (res == 1)
+      {
+        for (int i = j; i < j + 4; i++)
+        {
+          if (key_equal(key_slots_[i],key))
+          {
+            return bound = i;
+          }
+        }
+      }
+    }
+
+    for (int i = size - 3; i < size; i++)
+    {
+      if (key_equal(key_slots_[i],key))
+      {
+        return bound = i;
+      }
+    }
+  }
+  /********************************************texttime******************************************************/
+  timespec_get(&ets, TIME_UTC);
+  time_t dsec=ets.tv_sec-sts.tv_sec;
+  long dnsec=ets.tv_nsec-sts.tv_nsec;
+  if (dnsec<0){
+	  dsec--;
+	  dnsec+=1000000000ll;
+  }
+  printf ("%lld.%09llds\n",dsec,dnsec);
+  /********************************************texttime******************************************************/
+  return 0;
+}
+
+
+
+  /**************************************************************************************************************************/
+  /**************************************************************************************************************************/
 
   // Searches for the first position greater than key, starting from position m
   // Returns position in range [0, data_capacity]
@@ -1561,16 +1704,16 @@ class AlexDataNode : public AlexNode<T, P> {
     if (key_greater(ALEX_DATA_NODE_KEY_AT(m), key)) {
       int size = m;
       while (bound < size &&
-             key_greater(ALEX_DATA_NODE_KEY_AT(m - bound), key)) {
+             key_greater(ALEX_DATA_NODE_KEY_AT(m - bound), key)) {//AT(m) > key, search from right to left
         bound *= 2;
         num_exp_search_iterations_++;
       }
-      l = m - std::min<int>(bound, size);
+      l = m - std::min<int>(bound, size); 
       r = m - bound / 2;
     } else {
       int size = data_capacity_ - m;
       while (bound < size &&
-             key_lessequal(ALEX_DATA_NODE_KEY_AT(m + bound), key)) {
+             key_lessequal(ALEX_DATA_NODE_KEY_AT(m + bound), key)) {//AT(m)<key, search from left to right
         bound *= 2;
         num_exp_search_iterations_++;
       }
@@ -1596,6 +1739,9 @@ class AlexDataNode : public AlexNode<T, P> {
     return l;
   }
 
+/**************************************************************************************************************************/
+
+
   // Searches for the first position no less than key
   // This could be the position for a gap (i.e., its bit in the bitmap is 0)
   // Returns position in range [0, data_capacity]
@@ -1604,7 +1750,7 @@ class AlexDataNode : public AlexNode<T, P> {
   int lower_bound(const K& key) {
     num_lookups_++;
     int position = predict_position(key);
-    return exponential_search_lower_bound(position, key);
+    return simd_search(position, key);
   }
 
   // Searches for the first position no less than key, starting from position m
@@ -1651,6 +1797,15 @@ class AlexDataNode : public AlexNode<T, P> {
     }
     return l;
   }
+
+/**************************************************************************************************************************/
+/**************************************************************************************************************************/
+/**************************************************************************************************************************/
+
+
+
+
+
 
   /*** Inserts and resizes ***/
 
@@ -1732,6 +1887,17 @@ class AlexDataNode : public AlexNode<T, P> {
     }
     return {0, insertion_position};
   }
+
+
+/**************************************************************************************************************************/
+/**************************************************************************************************************************/
+/**************************************************************************************************************************/
+
+
+
+
+
+
 
   // Resize the data node to the target density
   void resize(double target_density, bool force_retrain = false,

@@ -38,6 +38,7 @@
 #include "alex_base.h"
 #include "alex_fanout_tree.h"
 #include "alex_nodes.h"
+#include<time.h>
 
 // Whether we account for floating-point precision issues when traversing down
 // ALEX.
@@ -46,7 +47,12 @@
 // computation and possibly accessing two data nodes to perform a lookup.
 #define ALEX_SAFE_LOOKUP 1
 
+
+
+
 namespace alex {
+
+
 
 template <class T, class P, class Compare = AlexCompare,
           class Alloc = std::allocator<std::pair<T, P>>,
@@ -57,6 +63,7 @@ class Alex {
                 "Must use AlexCompare.");
 
  public:
+
   // Value type, returned by dereferencing an iterator
   typedef std::pair<T, P> V;
 

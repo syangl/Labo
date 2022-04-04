@@ -26,7 +26,7 @@
 #include <intrin.h>
 #else
 //#include <x86intrin.h>
-//#include<arm_neon.h>
+#include<arm_neon.h>
 
 #endif
 #include <bitset>
