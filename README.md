@@ -5,7 +5,9 @@ I trying to use SIMD and Pthread to parallelize the ALEX's search and insert alg
 
 # Works
 You can find the parts that I have changed in [my_work](https://github.com/syangl/Labo/tree/main/my_work).
-I made some adaptations and extensions to apply parts in my_work to micrsoft's ALEX, [alex_core](https://github.com/syangl/Labo/tree/main/alex_core) is the code of ALEX within my_work parts. 
+I made some adaptations and extensions to apply parts in [my_work](https://github.com/syangl/Labo/tree/main/my_work) to micrsoft's ALEX, I modified some parts in the origin version ALEX([ALEX_origin_arm](https://github.com/syangl/Labo/tree/main/ALEX_origin_arm)) so it can run on arm. And added simd searching algorithm in simd version([ALEX](https://github.com/syangl/Labo/tree/main/ALEX)), so I can compare the original version with simd-modified version.(Both of these version based on Microsoft's ALEX source code). 
 ________________________________________________________________________________
 # Microsoft's ALEX open source is here:
-  https://github.com/microsoft/ALEX.git
+  https://github.com/microsoft/ALEX.gi
+#Other statements
+This is just my personal work in school and it all based on Microsoft's ALEX open source.
