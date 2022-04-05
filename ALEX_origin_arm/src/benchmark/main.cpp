@@ -79,6 +79,10 @@ int main(int argc, char* argv[]) {
   double cumulative_insert_time = 0;
   double cumulative_lookup_time = 0;
 
+  //测试指数搜索时间
+  double exponential_per_search_time = 0.0;
+  //测试指数搜索时间
+
   auto workload_start_time = std::chrono::high_resolution_clock::now();
   int batch_no = 0;
   PAYLOAD_TYPE sum = 0;
@@ -101,14 +105,22 @@ int main(int argc, char* argv[]) {
         return 1;
       }
       auto lookups_start_time = std::chrono::high_resolution_clock::now();
+      auto exponential_start_time = std::chrono::high_resolution_clock::now(),exponential_end_time = std::chrono::high_resolution_clock::now();//测试指数搜索时间
       for (int j = 0; j < num_lookups_per_batch; j++) {
         KEY_TYPE key = lookup_keys[j];
+        exponential_start_time = std::chrono::high_resolution_clock::now();//测试指数搜索时间-start
         PAYLOAD_TYPE* payload = index.get_payload(key);
+        exponential_end_time = std::chrono::high_resolution_clock::now();//测试指数搜索时间-end
         if (payload) {
           sum += *payload;
         }
       }
       auto lookups_end_time = std::chrono::high_resolution_clock::now();
+      //测试指数搜索时间
+      exponential_per_search_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                              exponential_end_time - exponential_start_time)
+                              .count();
+      //测试指数搜索时间
       batch_lookup_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
                               lookups_end_time - lookups_start_time)
                               .count();
@@ -151,7 +163,9 @@ int main(int argc, char* argv[]) {
                 << " lookups/sec,\t"
                 << cumulative_inserts / cumulative_insert_time * 1e9
                 << " inserts/sec,\t"
-                << cumulative_operations / cumulative_time * 1e9 << " ops/sec"
+                << cumulative_operations / cumulative_time * 1e9 << " ops/sec，\t"
+                << exponential_per_search_time * 1e-9
+                << " exponential_search_sec/per"
                 << std::endl;
     }
 
@@ -179,7 +193,9 @@ int main(int argc, char* argv[]) {
             << " lookups/sec,\t"
             << cumulative_inserts / cumulative_insert_time * 1e9
             << " inserts/sec,\t"
-            << cumulative_operations / cumulative_time * 1e9 << " ops/sec"
+            << cumulative_operations / cumulative_time * 1e9 << " ops/sec,\t"
+            << exponential_per_search_time * 1e-9
+            << " exponential_search_sec/per"
             << std::endl;
 
   delete[] keys;

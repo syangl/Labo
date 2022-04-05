@@ -6,5 +6,5 @@ CXX_FLAGS = -O3 -Wall -Wextra -O3 -DNDEBUG   -std=gnu++14
 
 CXX_DEFINES = 
 
-CXX_INCLUDES = -I/root/Labo/ALEX_oringin_arm/src/core 
+CXX_INCLUDES = -I/root/Labo/ALEX_origin_arm/src/core 
 

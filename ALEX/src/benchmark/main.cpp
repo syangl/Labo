@@ -7,8 +7,6 @@
 
 #include "../core/alex.h"
 
-#include"alex_nodes.h"
-
 #include <iomanip>
 
 #include "flags.h"
@@ -90,6 +88,10 @@ int main(int argc, char* argv[]) {
   double cumulative_insert_time = 0;
   double cumulative_lookup_time = 0;
 
+  //测试simd时间
+  double simd_per_search_time = 0.0;
+  //测试simd时间
+
   auto workload_start_time = std::chrono::high_resolution_clock::now();
   int batch_no = 0;
   PAYLOAD_TYPE sum = 0;
@@ -111,15 +113,23 @@ int main(int argc, char* argv[]) {
                   << std::endl;
         return 1;
       }
-      auto lookups_start_time = std::chrono::high_resolution_clock::now();
+      auto lookups_start_time = std::chrono::high_resolution_clock::now();//查找测试时间
+      auto simd_start_time = std::chrono::high_resolution_clock::now(),simd_end_time = std::chrono::high_resolution_clock::now();//测试simd时间
       for (int j = 0; j < num_lookups_per_batch; j++) {
         KEY_TYPE key = lookup_keys[j];
+        simd_start_time = std::chrono::high_resolution_clock::now();//测试simd时间-start
         PAYLOAD_TYPE* payload = index.get_payload(key);
+        simd_end_time = std::chrono::high_resolution_clock::now();//测试simd时间-end
         if (payload) {
           sum += *payload;
         }
       }
       auto lookups_end_time = std::chrono::high_resolution_clock::now();
+      //测试simd时间
+      simd_per_search_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                              simd_end_time - simd_start_time)
+                              .count();
+      //测试simd时间
       batch_lookup_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
                               lookups_end_time - lookups_start_time)
                               .count();
@@ -132,7 +142,7 @@ int main(int argc, char* argv[]) {
     int num_actual_inserts =
         std::min(num_inserts_per_batch, total_num_keys - i);
     int num_keys_after_batch = i + num_actual_inserts;
-    auto inserts_start_time = std::chrono::high_resolution_clock::now();
+    auto inserts_start_time = std::chrono::high_resolution_clock::now();//插入测试时间
     for (; i < num_keys_after_batch; i++) {
       index.insert(keys[i], static_cast<PAYLOAD_TYPE>(gen_payload()));
     }
@@ -162,7 +172,9 @@ int main(int argc, char* argv[]) {
                 << " lookups/sec,\t"
                 << cumulative_inserts / cumulative_insert_time * 1e9
                 << " inserts/sec,\t"
-                << cumulative_operations / cumulative_time * 1e9 << " ops/sec"
+                << cumulative_operations / cumulative_time * 1e9 << " ops/sec,\t"
+                << simd_per_search_time * 1e-9
+                << " simd_search_sec/per"
                 << std::endl;
       
     }
@@ -191,7 +203,9 @@ int main(int argc, char* argv[]) {
             << " lookups/sec,\t"
             << cumulative_inserts / cumulative_insert_time * 1e9
             << " inserts/sec,\t"
-            << cumulative_operations / cumulative_time * 1e9 << " ops/sec"
+            << cumulative_operations / cumulative_time * 1e9 << " ops/sec,\t"
+            << simd_per_search_time * 1e-9
+            << " simd_search_sec/per"
             << std::endl;
   
   delete[] keys;

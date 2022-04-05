@@ -6,7 +6,7 @@
 
 #IncludeRegexTransform: 
 
-/root/Labo/ALEX_oringin_arm/src/benchmark/flags.h
+/root/Labo/ALEX_origin_arm/src/benchmark/flags.h
 iostream
 -
 map
@@ -16,23 +16,23 @@ sstream
 string
 -
 
-/root/Labo/ALEX_oringin_arm/src/benchmark/main.cpp
+/root/Labo/ALEX_origin_arm/src/benchmark/main.cpp
 ../core/alex.h
-/root/Labo/ALEX_oringin_arm/src/core/alex.h
+/root/Labo/ALEX_origin_arm/src/core/alex.h
 iomanip
 -
 flags.h
-/root/Labo/ALEX_oringin_arm/src/benchmark/flags.h
+/root/Labo/ALEX_origin_arm/src/benchmark/flags.h
 utils.h
-/root/Labo/ALEX_oringin_arm/src/benchmark/utils.h
+/root/Labo/ALEX_origin_arm/src/benchmark/utils.h
 
-/root/Labo/ALEX_oringin_arm/src/benchmark/utils.h
+/root/Labo/ALEX_origin_arm/src/benchmark/utils.h
 zipf.h
-/root/Labo/ALEX_oringin_arm/src/benchmark/zipf.h
+/root/Labo/ALEX_origin_arm/src/benchmark/zipf.h
 
-/root/Labo/ALEX_oringin_arm/src/benchmark/zipf.h
+/root/Labo/ALEX_origin_arm/src/benchmark/zipf.h
 
-/root/Labo/ALEX_oringin_arm/src/core/alex.h
+/root/Labo/ALEX_origin_arm/src/core/alex.h
 fstream
 -
 iostream
@@ -42,13 +42,13 @@ stack
 type_traits
 -
 alex_base.h
-/root/Labo/ALEX_oringin_arm/src/core/alex_base.h
+/root/Labo/ALEX_origin_arm/src/core/alex_base.h
 alex_fanout_tree.h
-/root/Labo/ALEX_oringin_arm/src/core/alex_fanout_tree.h
+/root/Labo/ALEX_origin_arm/src/core/alex_fanout_tree.h
 alex_nodes.h
-/root/Labo/ALEX_oringin_arm/src/core/alex_nodes.h
+/root/Labo/ALEX_origin_arm/src/core/alex_nodes.h
 
-/root/Labo/ALEX_oringin_arm/src/core/alex_base.h
+/root/Labo/ALEX_origin_arm/src/core/alex_base.h
 algorithm
 -
 array
@@ -88,13 +88,13 @@ limits.h
 stdint.h
 -
 
-/root/Labo/ALEX_oringin_arm/src/core/alex_fanout_tree.h
+/root/Labo/ALEX_origin_arm/src/core/alex_fanout_tree.h
 alex_base.h
-/root/Labo/ALEX_oringin_arm/src/core/alex_base.h
+/root/Labo/ALEX_origin_arm/src/core/alex_base.h
 alex_nodes.h
-/root/Labo/ALEX_oringin_arm/src/core/alex_nodes.h
+/root/Labo/ALEX_origin_arm/src/core/alex_nodes.h
 
-/root/Labo/ALEX_oringin_arm/src/core/alex_nodes.h
+/root/Labo/ALEX_origin_arm/src/core/alex_nodes.h
 alex_base.h
-/root/Labo/ALEX_oringin_arm/src/core/alex_base.h
+/root/Labo/ALEX_origin_arm/src/core/alex_base.h
 

@@ -4,7 +4,7 @@ set(CMAKE_DEPENDS_LANGUAGES
   )
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_CXX
-  "/root/Labo/ALEX_oringin_arm/src/benchmark/main.cpp" "/root/Labo/ALEX_oringin_arm/build/CMakeFiles/benchmark.dir/src/benchmark/main.cpp.o"
+  "/root/Labo/ALEX_origin_arm/src/benchmark/main.cpp" "/root/Labo/ALEX_origin_arm/build/CMakeFiles/benchmark.dir/src/benchmark/main.cpp.o"
   )
 set(CMAKE_CXX_COMPILER_ID "GNU")
 

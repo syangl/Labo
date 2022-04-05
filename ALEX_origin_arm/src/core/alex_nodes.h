@@ -1556,12 +1556,6 @@ class AlexDataNode : public AlexNode<T, P> {
   inline int exponential_search_upper_bound(int m, const K& key) {
     // Continue doubling the bound until it contains the upper bound. Then use
     // binary search.
-    
-    /********************************************texttime******************************************************/
-    struct timespec sts,ets;
-    timespec_get(&sts, TIME_UTC);
-    /********************************************texttime******************************************************/
-
     int bound = 1;
     int l, r;  // will do binary search in range [l, r)
     if (key_greater(ALEX_DATA_NODE_KEY_AT(m), key)) {
@@ -1583,19 +1577,7 @@ class AlexDataNode : public AlexNode<T, P> {
       l = m + bound / 2;
       r = m + std::min<int>(bound, size);
     }
-    /********************************************texttime******************************************************/
-    int ret = binary_search_lower_bound(l, r, key);
-     
-    timespec_get(&ets, TIME_UTC);
-    time_t dsec=ets.tv_sec-sts.tv_sec;
-    long dnsec=ets.tv_nsec-sts.tv_nsec;
-    if (dnsec<0){
-	    dsec--;
-	    dnsec+=1000000000ll;
-    }
-    printf ("%lld.%09llds\n",dsec,dnsec);
-    /********************************************texttime******************************************************/
-    return ret;
+    return binary_search_lower_bound(l, r, key);
   }
 
   // Searches for the first position greater than key in range [l, r)

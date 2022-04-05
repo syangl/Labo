@@ -12,7 +12,6 @@
 
 #include "alex_base.h"
 #include<arm_neon.h>
-#include<time.h>
 #include "alex.h"
 
 // Whether we store key and payload arrays separately in data nodes
@@ -1569,12 +1568,6 @@ class AlexDataNode : public AlexNode<T, P> {
 template <class K>
 inline int simd_search(int m, const K &key)
 {
-  /********************************************texttime******************************************************/
-  struct timespec sts,ets;
-  timespec_get(&sts, TIME_UTC);
-  /********************************************texttime******************************************************/
-  // to measure
-
   int size = data_capacity_;
   int32x4_t keys = vmovq_n_s32(key);
   //cout<<vgetq_lane_s32(keys,0);cout<<vgetq_lane_s32(keys,1);cout<<vgetq_lane_s32(keys,2);cout<<vgetq_lane_s32(keys,3)<<endl;
@@ -1584,24 +1577,24 @@ inline int simd_search(int m, const K &key)
   int bound;
   if (key_slots_[m]>key)//预测位置大于key实际位置
   {
-    //cout<<"key_slots_ "<<key_slots_[m]<<" enter1"<<endl;
+    
     for (int j = m-4; j>=0; j -= 4)
     {
       ////从[0:m-4]搜索key，每次检查大小为4的向量keys，从预测位置m开始从右至左搜索以减少搜索次数。
       ////加载数组中的四个key到m_load向量
       m_load = vld1q_s32(key_slots_+j);
-      //cout<<"m_load "<<vgetq_lane_s32(m_load,0);cout<<vgetq_lane_s32(m_load,1);cout<<vgetq_lane_s32(m_load,2);cout<<vgetq_lane_s32(m_load,3)<<endl;
+      
       ////比较结果标志位flags
       flags = (int32x4_t)vceqq_s32(keys, m_load);
-      //cout<<"flags1 "<<vgetq_lane_s32(flags,0);cout<<vgetq_lane_s32(flags,1);cout<<vgetq_lane_s32(flags,2);cout<<vgetq_lane_s32(flags,3)<<endl;
+      
       ////令flags向量每个元素为0或1
       flags = vsubq_s32(m_zero, flags);
-      //cout<<"flags2 "<<vgetq_lane_s32(flags,0);cout<<vgetq_lane_s32(flags,1);cout<<vgetq_lane_s32(flags,2);cout<<vgetq_lane_s32(flags,3)<<endl;
+      
       ////调换flags高两位和低两位
       int32x4_t tmp = vcombine_s32(vget_high_s32(flags), vget_low_s32(flags));
       ////flags和倒flags相加
       flags = vaddq_s32(flags, tmp);
-      //cout<<"flags3 "<<vgetq_lane_s32(flags,0);cout<<vgetq_lane_s32(flags,1);cout<<vgetq_lane_s32(flags,2);cout<<vgetq_lane_s32(flags,3)<<endl;
+      
       
       int32x4_t final_flag = vcombine_s32(vget_low_s32(flags), vget_low_s32(flags));
       ////把flags的2和3位移至0和1位，再复制给2和3位
@@ -1609,13 +1602,13 @@ inline int simd_search(int m, const K &key)
       tmp_arr[0]=tmp_arr[2]=vgetq_lane_s32(final_flag, 1);///////////////////////////////////不太好
       tmp_arr[1]=tmp_arr[3]=vgetq_lane_s32(final_flag, 2);
       tmp = vld1q_s32(tmp_arr);
-      //cout<<"tmp "<<vgetq_lane_s32(tmp,0);cout<<vgetq_lane_s32(tmp,1);cout<<vgetq_lane_s32(tmp,2);cout<<vgetq_lane_s32(tmp,3)<<endl;
+      
       ////flags和移位后的flags相加，结果为1111或0000
       final_flag = vaddq_s32(final_flag, tmp);
-      //cout<<"flags4 "<<vgetq_lane_s32(final_flag,0);cout<<vgetq_lane_s32(final_flag,1);cout<<vgetq_lane_s32(final_flag,2);cout<<vgetq_lane_s32(final_flag,3)<<endl;
+      
       ////res标志是否找到key
       int32_t res = vgetq_lane_s32(final_flag, 3);
-      //cout<<"res "<<res<<endl;
+      
       if (res == 1)
       {////key在此向量中，确定其具体位置
         for (int i = j; i < j + 4; i++)
@@ -1639,7 +1632,7 @@ inline int simd_search(int m, const K &key)
   }
   else
   {
-    //cout<<"key_slots_ "<<key_slots_[m]<<" enter2"<<endl;
+    
     for (int j = m; j < size; j += 4)
     {
 
@@ -1675,16 +1668,6 @@ inline int simd_search(int m, const K &key)
       }
     }
   }
-  /********************************************texttime******************************************************/
-  timespec_get(&ets, TIME_UTC);
-  time_t dsec=ets.tv_sec-sts.tv_sec;
-  long dnsec=ets.tv_nsec-sts.tv_nsec;
-  if (dnsec<0){
-	  dsec--;
-	  dnsec+=1000000000ll;
-  }
-  printf ("%lld.%09llds\n",dsec,dnsec);
-  /********************************************texttime******************************************************/
   return 0;
 }
 
