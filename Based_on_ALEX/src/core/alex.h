@@ -44,7 +44,9 @@
 // These issues rarely occur in practice but can cause incorrect behavior.
 // Turning this on will cause slight performance overhead due to extra
 // computation and possibly accessing two data nodes to perform a lookup.
-#define ALEX_SAFE_LOOKUP 1
+#define ALEX_SAFE_LOOKUP 0
+
+
 
 namespace alex {
 
@@ -396,35 +398,88 @@ class Alex {
 // traversal_path should be empty when calling this function.
 // The returned traversal path begins with superroot and ends with the data
 // node's parent.
+
+///////////////////////////////////////////////////////////////////////search-pthread///////////////////////////////////////////////////
+int IF_SPLIT = -1;  
+pthread_rwlock_t alex_IF_SPLIT_lock; 
+
+inline void try_IF_SPLIT(){
+  int try_res = -1;
+  while(try_res != 0){
+    try_res = pthread_rwlock_trywrlock(&alex_IF_SPLIT_lock);
+    //std::cout<<" try"<<std::endl;
+  }
+  IF_SPLIT = -IF_SPLIT;
+  pthread_rwlock_unlock(&alex_IF_SPLIT_lock);
+}
+
+inline void unlock_traversal_path(std::vector<TraversalNode>* traversal_path) const {
+  if (traversal_path != NULL){
+    for (int i = 0; i < static_cast<int>((*traversal_path).size()); i++){
+      pthread_rwlock_unlock(&(*traversal_path)[i].node->alex_rwlock);
+    }
+  }
+}
+
+inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const {
+  if (traversal_path != NULL){
+    for (int i = 0; i < static_cast<int>((*traversal_path).size()); i++){
+      int try_res = -1;
+        try_res = pthread_rwlock_trywrlock(&(*traversal_path)[i].node->alex_rwlock);
+        if(try_res != 0){
+          return -1;
+        }
+        //std::cout<<" try_res "<<try_res<<std::endl;
+    }
+  }
+}
+
+///////////////////////////////////////////////////////////////////////search-pthread///////////////////////////////////////////////////
 #if ALEX_SAFE_LOOKUP
   forceinline data_node_type* get_leaf(
       T key, std::vector<TraversalNode>* traversal_path = nullptr) const {
     if (traversal_path) {
       traversal_path->push_back({superroot_, 0});
     }
-    AlexNode<T, P>* cur = root_node_;
+    AlexNode<T, P>* cur = root_node_;//从root开始遍历
+    // //拿写锁，失败返回
+    // if(pthread_rwlock_tryrdlock(&cur->alex_rwlock)/*失败返回-1*/){
+    //   unlock_traversal_path(*traversal_path);
+    //   return NULL;//失败结点返回NULL
+    // }
+    
     if (cur->is_leaf_) {
+      // //释放锁
+      // pthread_rwlock_unlock(&cur->alex_rwlock);
+      // unlock_traversal_path(*traversal_path);
+      
       return static_cast<data_node_type*>(cur);
     }
 
     while (true) {
       auto node = static_cast<model_node_type*>(cur);
-      double bucketID_prediction = node->model_.predict_double(key);
+      double bucketID_prediction = node->model_.predict_double(key);//predict_double返回a*key+b
       int bucketID = static_cast<int>(bucketID_prediction);
       bucketID =
-          std::min<int>(std::max<int>(bucketID, 0), node->num_children_ - 1);
+          std::min<int>(std::max<int>(bucketID, 0), node->num_children_ - 1);//ID不能超出范围
       if (traversal_path) {
-        traversal_path->push_back({node, bucketID});
+        traversal_path->push_back({node, bucketID});//保存遍历路径
       }
-      cur = node->children_[bucketID];
+      cur = node->children_[bucketID];//遍历
+      // //获取新结点的锁
+      // if(pthread_rwlock_tryrdlock(&cur->alex_rwlock)/*失败返回-1*/){
+      //   unlock_traversal_path(*traversal_path);
+      //   return NULL;//失败结点返回NULL
+      // }
+
       if (cur->is_leaf_) {
         stats_.num_node_lookups += cur->level_;
-        auto leaf = static_cast<data_node_type*>(cur);
+        auto leaf = static_cast<data_node_type*>(cur);//找到了叶子
         // Doesn't really matter if rounding is incorrect, we just want it to be
         // fast.
         // So we don't need to use std::round or std::lround.
         int bucketID_prediction_rounded =
-            static_cast<int>(bucketID_prediction + 0.5);
+            static_cast<int>(bucketID_prediction + 0.5);//？？？？？？？？？？
         double tolerance =
             10 * std::numeric_limits<double>::epsilon() * bucketID_prediction;
         // https://stackoverflow.com/questions/17333/what-is-the-most-effective-way-for-float-and-double-comparison
@@ -436,6 +491,10 @@ class Alex {
                 // Correct the traversal path
                 correct_traversal_path(leaf, *traversal_path, true);
               }
+              // //返回前释放锁
+              // pthread_rwlock_unlock(&cur->alex_rwlock);
+              // unlock_traversal_path(*traversal_path);
+
               return leaf->prev_leaf_;
             }
           } else {
@@ -444,12 +503,20 @@ class Alex {
                 // Correct the traversal path
                 correct_traversal_path(leaf, *traversal_path, false);
               }
+              // //释放锁
+              // pthread_rwlock_unlock(&cur->alex_rwlock);
+              // unlock_traversal_path(*traversal_path);
+              
               return leaf->next_leaf_;
             }
           }
         }
+        // //释放锁
+        // pthread_rwlock_unlock(&cur->alex_rwlock);
+        // unlock_traversal_path(*traversal_path);
+
         return leaf;
-      }
+      }//返回查找的叶子结点
     }
   }
 #else
@@ -459,6 +526,14 @@ class Alex {
       traversal_path->push_back({superroot_, 0});
     }
     AlexNode<T, P>* cur = root_node_;
+    //分裂节点回溯时全加锁
+    if(IF_SPLIT == 1){
+      //获取新结点的锁
+      if (pthread_rwlock_trywrlock(&cur->alex_rwlock) /*失败返回-1*/){
+        //unlock_traversal_path(traversal_path);
+        return NULL; //失败结点返回NULL
+      }
+    }
 
     while (!cur->is_leaf_) {
       auto node = static_cast<model_node_type*>(cur);
@@ -469,9 +544,22 @@ class Alex {
         traversal_path->push_back({node, bucketID});
       }
       cur = node->children_[bucketID];
+      //分裂节点回溯时全加锁
+      if(IF_SPLIT == 1){
+        //获取新结点的锁
+        if (pthread_rwlock_trywrlock(&cur->alex_rwlock) /*失败返回-1*/){
+          //unlock_traversal_path(traversal_path);
+          return NULL; //失败结点返回NULL
+        }
+      }
+
     }
 
     stats_.num_node_lookups += cur->level_;
+    // //释放锁
+    // pthread_rwlock_unlock(&cur->alex_rwlock);
+    // unlock_traversal_path(traversal_path);
+
     return static_cast<data_node_type*>(cur);
   }
 #endif
@@ -984,7 +1072,14 @@ class Alex {
   P* get_payload(const T& key) const {
     stats_.num_lookups++;
     data_node_type* leaf = get_leaf(key);
+    /////////////////////////////////////////pthread///////////////////////////////////////////////////////////////
+    if(pthread_rwlock_tryrdlock(&leaf->alex_rwlock)/*失败返回-1*/){
+      return nullptr;//失败结点返回NULL
+    }
+    //std::cout<<" tryrdlock "<<std::endl;
     int idx = leaf->find_key(key);
+    pthread_rwlock_unlock(&leaf->alex_rwlock);
+    /////////////////////////////////////////pthread///////////////////////////////////////////////////////////////
     if (idx < 0) {
       return nullptr;
     } else {
@@ -1144,7 +1239,14 @@ class Alex {
     data_node_type* leaf = get_leaf(key);
 
     // Nonzero fail flag means that the insert did not happen
+    ///////////////////////////////////////////////////pthread-wrlock//////////////////////////////////////////////
+    if(pthread_rwlock_trywrlock(&leaf->alex_rwlock)){
+      return {Iterator(leaf, -1), false};//{Iterator(),-1};
+    }
+    //std::cout<<" trywrlock "<<std::endl;
     std::pair<int, int> ret = leaf->insert(key, payload);
+    pthread_rwlock_unlock(&leaf->alex_rwlock);
+    ///////////////////////////////////////////////////pthread-wrlock//////////////////////////////////////////////
     int fail = ret.first;
     int insert_pos = ret.second;
     if (fail == -1) {
@@ -1157,6 +1259,13 @@ class Alex {
     if (fail) {
       std::vector<TraversalNode> traversal_path;
       get_leaf(key, &traversal_path);
+      try_IF_SPLIT();//修改ifsplit为true
+      int success_lock = lock_traversal_path(&traversal_path);///////////////////////////分裂前整条路径加锁///////////////////////////
+      std::cout<<" success "<<success_lock<<std::endl;
+      if(success_lock == -1){
+        return {Iterator(),-1};
+      }
+
       model_node_type* parent = traversal_path.back().node;
 
       while (fail) {
@@ -1247,12 +1356,17 @@ class Alex {
         insert_pos = ret.second;
         if (fail == -1) {
           // Duplicate found and duplicates not allowed
+          ///////////////////////////////////////////////解锁路径///////////////////////////////////////////////////
+          unlock_traversal_path(&traversal_path);
+          try_IF_SPLIT();//修改ifsplit为false
           return {Iterator(leaf, insert_pos), false};
         }
       }
     }
     stats_.num_inserts++;
     stats_.num_keys++;
+    // unlock_traversal_path(&traversal_path);///////////////////////////////////////////////解锁路径///////////////////////////////////////////////////
+    // try_IF_SPLIT();//修改ifsplit为false
     return {Iterator(leaf, insert_pos), true};
   }
 
