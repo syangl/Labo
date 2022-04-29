@@ -401,21 +401,25 @@ class Alex {
 
 ///////////////////////////////////////////////////////////////////////search-pthread///////////////////////////////////////////////////
 int IF_SPLIT = -1;  
-pthread_rwlock_t alex_IF_SPLIT_lock; 
+pthread_rwlock_t alex_IF_SPLIT_lock;
 
-inline void try_IF_SPLIT(){
-  int try_res = -1;
-  while(try_res != 0){
-    try_res = pthread_rwlock_trywrlock(&alex_IF_SPLIT_lock);
-    //std::cout<<" try"<<std::endl;
-  }
-  IF_SPLIT = -IF_SPLIT;
-  pthread_rwlock_unlock(&alex_IF_SPLIT_lock);
+inline void lock_init(){
+  pthread_rwlock_init(&alex_IF_SPLIT_lock,NULL);
 }
+
+//inline void try_IF_SPLIT(){
+  //int try_res = -1;
+ // while(try_res != 0){
+    //try_res = pthread_rwlock_trywrlock(&alex_IF_SPLIT_lock);
+    //std::cout<<" try--"<<try_res<<std::endl;
+  //}
+  //IF_SPLIT = -IF_SPLIT;
+  //pthread_rwlock_unlock(&alex_IF_SPLIT_lock);
+//}
 
 inline void unlock_traversal_path(std::vector<TraversalNode>* traversal_path) const {
   if (traversal_path != NULL){
-    for (int i = 0; i < static_cast<int>((*traversal_path).size()); i++){
+    for (int i = 0; i < int((*traversal_path).size()); i++){
       pthread_rwlock_unlock(&(*traversal_path)[i].node->alex_rwlock);
     }
   }
@@ -423,15 +427,23 @@ inline void unlock_traversal_path(std::vector<TraversalNode>* traversal_path) co
 
 inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const {
   if (traversal_path != NULL){
-    for (int i = 0; i < static_cast<int>((*traversal_path).size()); i++){
-      int try_res = -1;
+    const int size = int((*traversal_path).size());
+    //std::cout<<" enter_lock-----"<<size<<std::endl;
+
+    for (int i = 0; i < size; i++){
+      //std::cout<<" enter_for"<<i<<" size"<<int((*traversal_path).size())<<std::endl;
+      //if (traversal_path != NULL){
+        int try_res = -1;
         try_res = pthread_rwlock_trywrlock(&(*traversal_path)[i].node->alex_rwlock);
         if(try_res != 0){
           return -1;
         }
-        //std::cout<<" try_res "<<try_res<<std::endl;
+        //std::cout<<" try_res**"<<try_res<<std::endl;
+      //}
     }
   }
+
+  return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////search-pthread///////////////////////////////////////////////////
@@ -443,7 +455,7 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     }
     AlexNode<T, P>* cur = root_node_;//从root开始遍历
     // //拿写锁，失败返回
-    // if(pthread_rwlock_tryrdlock(&cur->alex_rwlock)/*失败返回-1*/){
+    // if(pthread_rwlock_rdlock(&cur->alex_rwlock)/*失败返回-1*/){
     //   unlock_traversal_path(*traversal_path);
     //   return NULL;//失败结点返回NULL
     // }
@@ -467,7 +479,7 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
       }
       cur = node->children_[bucketID];//遍历
       // //获取新结点的锁
-      // if(pthread_rwlock_tryrdlock(&cur->alex_rwlock)/*失败返回-1*/){
+      // if(pthread_rwlock_rdlock(&cur->alex_rwlock)/*失败返回-1*/){
       //   unlock_traversal_path(*traversal_path);
       //   return NULL;//失败结点返回NULL
       // }
@@ -529,7 +541,8 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     //分裂节点回溯时全加锁
     if(IF_SPLIT == 1){
       //获取新结点的锁
-      if (pthread_rwlock_trywrlock(&cur->alex_rwlock) /*失败返回-1*/){
+      //pthread_rwlock_wrlock(&cur->alex_rwlock);
+      if ( pthread_rwlock_trywrlock(&cur->alex_rwlock)/*失败返回-1*/){
         //unlock_traversal_path(traversal_path);
         return NULL; //失败结点返回NULL
       }
@@ -547,6 +560,7 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
       //分裂节点回溯时全加锁
       if(IF_SPLIT == 1){
         //获取新结点的锁
+        //pthread_rwlock_wrlock(&cur->alex_rwlock);
         if (pthread_rwlock_trywrlock(&cur->alex_rwlock) /*失败返回-1*/){
           //unlock_traversal_path(traversal_path);
           return NULL; //失败结点返回NULL
@@ -1076,7 +1090,8 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     if(pthread_rwlock_tryrdlock(&leaf->alex_rwlock)/*失败返回-1*/){
       return nullptr;//失败结点返回NULL
     }
-    //std::cout<<" tryrdlock "<<std::endl;
+    //pthread_rwlock_rdlock(&leaf->alex_rwlock);
+    //std::cout<<" rdlock "<<stats_.num_lookups<<std::endl;
     int idx = leaf->find_key(key);
     pthread_rwlock_unlock(&leaf->alex_rwlock);
     /////////////////////////////////////////pthread///////////////////////////////////////////////////////////////
@@ -1204,11 +1219,13 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
 
  public:
   std::pair<Iterator, bool> insert(const V& value) {
+    //std::cout<<" insert(const V& value) "<<std::endl;
     return insert(value.first, value.second);
   }
 
   template <class InputIterator>
   void insert(InputIterator first, InputIterator last) {
+    //std::cout<<" insert(InputIterator first, InputIterator last) "<<std::endl;
     for (auto it = first; it != last; ++it) {
       insert(*it);
     }
@@ -1224,6 +1241,9 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
   std::pair<Iterator, bool> insert(const T& key, const P& payload) {
     // If enough keys fall outside the key domain, expand the root to expand the
     // key domain
+
+    //std::cout<<" insert(const T& key, const P& payload) "<<std::endl;
+
     if (key > istats_.key_domain_max_) {
       istats_.num_keys_above_key_domain++;
       if (should_expand_right()) {
@@ -1243,7 +1263,8 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     if(pthread_rwlock_trywrlock(&leaf->alex_rwlock)){
       return {Iterator(leaf, -1), false};//{Iterator(),-1};
     }
-    //std::cout<<" trywrlock "<<std::endl;
+    //pthread_rwlock_wrlock(&leaf->alex_rwlock);
+    //std::cout<<" wrlock "<<stats_.num_inserts<<std::endl;
     std::pair<int, int> ret = leaf->insert(key, payload);
     pthread_rwlock_unlock(&leaf->alex_rwlock);
     ///////////////////////////////////////////////////pthread-wrlock//////////////////////////////////////////////
@@ -1257,11 +1278,23 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     // If no insert, figure out what to do with the data node to decrease the
     // cost
     if (fail) {
+
+      //std::cout<<" enter_fail "<<std::endl;
+
       std::vector<TraversalNode> traversal_path;
       get_leaf(key, &traversal_path);
-      try_IF_SPLIT();//修改ifsplit为true
+
+      //std::cout<<" get_leaf "<<std::endl;
+      if(IF_SPLIT == -1){
+            IF_SPLIT = 1;
+            //try_IF_SPLIT();//修改ifsplit为1
+      }
+
+      //std::cout<<" try_IF_SPLIT "<<IF_SPLIT<<std::endl;
+
       int success_lock = lock_traversal_path(&traversal_path);///////////////////////////分裂前整条路径加锁///////////////////////////
-      std::cout<<" success "<<success_lock<<std::endl;
+      
+      //std::cout<<" success "<<success_lock<<std::endl;
       if(success_lock == -1){
         return {Iterator(),-1};
       }
@@ -1269,6 +1302,8 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
       model_node_type* parent = traversal_path.back().node;
 
       while (fail) {
+        //std::cout<<" while (fail) "<<std::endl;
+
         auto start_time = std::chrono::high_resolution_clock::now();
         stats_.num_expand_and_scales += leaf->num_resizes_;
 
@@ -1351,6 +1386,9 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
                 .count();
 
         // Try again to insert the key
+
+        //std::cout<<" Try again "<<std::endl;
+
         ret = leaf->insert(key, payload);
         fail = ret.first;
         insert_pos = ret.second;
@@ -1358,15 +1396,26 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
           // Duplicate found and duplicates not allowed
           ///////////////////////////////////////////////解锁路径///////////////////////////////////////////////////
           unlock_traversal_path(&traversal_path);
-          try_IF_SPLIT();//修改ifsplit为false
+          if(IF_SPLIT == 1){
+            IF_SPLIT = -1;
+            //try_IF_SPLIT();//修改ifsplit为false
+          }
+
+          //std::cout<<" Try again return"<<std::endl;
           return {Iterator(leaf, insert_pos), false};
         }
+        
+      //std::cout<<" while end"<<std::endl;
       }
     }
     stats_.num_inserts++;
     stats_.num_keys++;
     // unlock_traversal_path(&traversal_path);///////////////////////////////////////////////解锁路径///////////////////////////////////////////////////
-    // try_IF_SPLIT();//修改ifsplit为false
+    if(IF_SPLIT == 1){
+      IF_SPLIT = -1;
+      //try_IF_SPLIT();//修改ifsplit为false
+    }
+    //std::cout<<" try_IF_SPLIT turn "<<std::endl;
     return {Iterator(leaf, insert_pos), true};
   }
 

@@ -64,28 +64,30 @@ typedef struct{
 //读线程
 void *threadSearch(void *param){
   threadParam_t * p = (threadParam_t*)param;
-  // int test_count = 0;
+  int test_count = 0;
   int id = p->t_id;
   int num = p->t_num;
   PAYLOAD_TYPE ret_search;
   PAYLOAD_TYPE* payload;
+  std::cout<<" threadSearch "<<id<<std::endl;
 
-  auto t_start_time = std::chrono::high_resolution_clock::now();
+  auto t_start_time1 = std::chrono::high_resolution_clock::now();
 
   for (int i = id*(total_num_keys/num); i < (id+1)*(total_num_keys/num); i++){
     payload = alex_index.get_payload(keys[i]);
+    test_count++;
     if(payload != nullptr){
       ret_search = *payload;
     }
   }
 
-     auto t_end_time = std::chrono::high_resolution_clock::now();
-   double t_time =
-       std::chrono::duration_cast<std::chrono::nanoseconds>(t_end_time -
-                                                             t_start_time)
+     auto t_end_time1 = std::chrono::high_resolution_clock::now();
+   double t_time1 =
+       std::chrono::duration_cast<std::chrono::nanoseconds>(t_end_time1 -
+                                                             t_start_time1)
            .count();
-   std::cout << "t_search_time: " << t_time << std::endl;
-  std::cout<<" overread "<<id<<std::endl;
+   std::cout << "t_search_time: " << t_time1 << " this_thread_count "<<test_count<<std::endl;
+  //std::cout<<" overread "<<id<<std::endl;
   pthread_exit(NULL);
 }
 //写线程
@@ -96,19 +98,26 @@ void *threadWrite(void *param){
   PAYLOAD_TYPE ret_search;
   PAYLOAD_TYPE* payload;
 
-  auto t_start_time = std::chrono::high_resolution_clock::now();
+  int test_count = 0;
+
+  std::cout<<" threadWrite "<<id<<std::endl;
+  
+  auto t_start_time2 = std::chrono::high_resolution_clock::now();
 
   for (int i = id*((total_num_keys-init_num_keys)/num)+init_num_keys; i < (id+1)*((total_num_keys-init_num_keys)/num)+init_num_keys; i++) {
+    //std::cout<<" insert_for "<<i-init_num_keys<<std::endl;
+    test_count++;
     alex_index.insert(keys[i], static_cast<PAYLOAD_TYPE>(gen_payload()));
   }
-  auto t_end_time = std::chrono::high_resolution_clock::now();
-   double t_time =
-       std::chrono::duration_cast<std::chrono::nanoseconds>(t_end_time -
-                                                             t_start_time)
-           .count();
-   std::cout << "t_search_time: " << t_time << std::endl;
 
-  std::cout<<" overwrite "<<id<<std::endl;
+  auto t_end_time2 = std::chrono::high_resolution_clock::now();
+   double t_time2 =
+       std::chrono::duration_cast<std::chrono::nanoseconds>(t_end_time2 -
+                                                             t_start_time2)
+           .count();
+  std::cout << "t_search_time: " << t_time2 << " this_thread_count "<<test_count<< std::endl;
+
+  //std::cout<<" overwrite "<<id<<std::endl;
   pthread_exit(NULL);
 }
 
@@ -151,6 +160,7 @@ int main(int argc, char* argv[]) {
 
   // Create ALEX and bulk load
   //alex::Alex<KEY_TYPE, PAYLOAD_TYPE> alex_index;
+  alex_index.lock_init();
 
   std::sort(values, values + init_num_keys,
             [](auto const& a, auto const& b) { return a.first < b.first; });
@@ -160,7 +170,7 @@ int main(int argc, char* argv[]) {
   std::cout << "------------ bulkload finished ----------- " << std::endl;
   // Run workload
 
-  //int i = init_num_keys;//////////////////////////////////////////
+  int i = init_num_keys;//////////////////////////////////////////
 
   long long insert_num_keys = total_num_keys - init_num_keys;
 
@@ -187,11 +197,11 @@ int main(int argc, char* argv[]) {
     pthread_join(handles1[i], NULL);
   }
   auto T1_end_time = std::chrono::high_resolution_clock::now();
-  double T1_time =
+  double insert_time =
        std::chrono::duration_cast<std::chrono::nanoseconds>(T1_end_time -
                                                              T1_start_time)
            .count();
-  std::cout << "T1_time: " << T1_time << std::endl;
+  std::cout << "T1_time: " << insert_time << std::endl;
 
   ///////////////////////////////////////////////////////pthread////////////////////////////////////////////////////////
   // auto insert_start_time = std::chrono::high_resolution_clock::now();
@@ -204,7 +214,7 @@ int main(int argc, char* argv[]) {
   //                                                           insert_start_time)
   //         .count();
   // std::cout << "insert_time: " << insert_time << std::endl;
-  std::cout << "insert num is: " << insert_num_keys  << ", bw is " << insert_num_keys / T1_time * 1e9 << std::endl;
+  std::cout << "insert num is: " << insert_num_keys  << ", bw is " << insert_num_keys / insert_time * 1e9 << std::endl;
 
   std::cout << "------------ end insert --------------- " << std::endl;
 
