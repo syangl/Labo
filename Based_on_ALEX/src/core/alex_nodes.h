@@ -16,6 +16,8 @@
 
 #include <pthread.h>
 
+#include <omp.h>
+
 // Whether we store key and payload arrays separately in data nodes
 // By default, we store them separately
 #define ALEX_DATA_NODE_SEP_ARRAYS 1
@@ -62,6 +64,9 @@ class AlexNode {
   //////////////////////////////////////////////////////////////lock////////////////////////////////////////////////////
   pthread_rwlock_t alex_rwlock;
   void AlexNodeLockInit(pthread_rwlock_t & alex_rwlock){
+    #if DEBUG == 1
+      std::cout<<"initlock"<<std::endl;
+    #endif
     pthread_rwlock_init(&alex_rwlock, NULL);
   }
   //////////////////////////////////////////////////////////////lock////////////////////////////////////////////////////

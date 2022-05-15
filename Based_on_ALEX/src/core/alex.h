@@ -48,6 +48,8 @@
 
 
 
+
+
 namespace alex {
 
 template <class T, class P, class Compare = AlexCompare,
@@ -401,11 +403,11 @@ class Alex {
 
 ///////////////////////////////////////////////////////////////////////search-pthread///////////////////////////////////////////////////
 int IF_SPLIT = -1;  
-pthread_rwlock_t alex_IF_SPLIT_lock;
+//pthread_rwlock_t alex_IF_SPLIT_lock;
 
-inline void lock_init(){
-  pthread_rwlock_init(&alex_IF_SPLIT_lock,NULL);
-}
+// inline void lock_init(){
+//   pthread_rwlock_init(&alex_IF_SPLIT_lock,NULL);
+// }
 
 //inline void try_IF_SPLIT(){
   //int try_res = -1;
@@ -418,28 +420,45 @@ inline void lock_init(){
 //}
 
 inline void unlock_traversal_path(std::vector<TraversalNode>* traversal_path) const {
+  //待解决问题解决后删除count
+    int count = 0;
+  //
   if (traversal_path != NULL){
     for (int i = 0; i < int((*traversal_path).size()); i++){
-      pthread_rwlock_unlock(&(*traversal_path)[i].node->alex_rwlock);
+      while(pthread_rwlock_unlock(&(*traversal_path)[i].node->alex_rwlock) != 0 && count < 10000){
+        count++;
+        #if DEBUG == 1 
+          std::cout << "trylock--unlock_path--pos-" << i << std::endl;
+        #endif
+      }
     }
   }
 }
 
 inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const {
+  //待解决问题解决后删除count
+    int count = 0;
+  //
   if (traversal_path != NULL){
     const int size = int((*traversal_path).size());
     //std::cout<<" enter_lock-----"<<size<<std::endl;
 
     for (int i = 0; i < size; i++){
       //std::cout<<" enter_for"<<i<<" size"<<int((*traversal_path).size())<<std::endl;
-      //if (traversal_path != NULL){
-        int try_res = -1;
-        try_res = pthread_rwlock_trywrlock(&(*traversal_path)[i].node->alex_rwlock);
-        if(try_res != 0){
-          return -1;
+      if (traversal_path != NULL){
+        // int try_res = -1;
+        // try_res = 
+        while(pthread_rwlock_trywrlock(&(*traversal_path)[i].node->alex_rwlock) != 0 && count < 10000){
+          count++;
+          #if DEBUG == 1 
+            std::cout << "trylock--lock_path--pos-" << i << std::endl;
+          #endif
         }
+        // if(try_res != 0){
+        //   return -1;
+        // }
         //std::cout<<" try_res**"<<try_res<<std::endl;
-      //}
+      }
     }
   }
 
@@ -454,17 +473,9 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
       traversal_path->push_back({superroot_, 0});
     }
     AlexNode<T, P>* cur = root_node_;//从root开始遍历
-    // //拿写锁，失败返回
-    // if(pthread_rwlock_rdlock(&cur->alex_rwlock)/*失败返回-1*/){
-    //   unlock_traversal_path(*traversal_path);
-    //   return NULL;//失败结点返回NULL
-    // }
-    
+
     if (cur->is_leaf_) {
-      // //释放锁
-      // pthread_rwlock_unlock(&cur->alex_rwlock);
-      // unlock_traversal_path(*traversal_path);
-      
+
       return static_cast<data_node_type*>(cur);
     }
 
@@ -478,11 +489,6 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
         traversal_path->push_back({node, bucketID});//保存遍历路径
       }
       cur = node->children_[bucketID];//遍历
-      // //获取新结点的锁
-      // if(pthread_rwlock_rdlock(&cur->alex_rwlock)/*失败返回-1*/){
-      //   unlock_traversal_path(*traversal_path);
-      //   return NULL;//失败结点返回NULL
-      // }
 
       if (cur->is_leaf_) {
         stats_.num_node_lookups += cur->level_;
@@ -503,9 +509,6 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
                 // Correct the traversal path
                 correct_traversal_path(leaf, *traversal_path, true);
               }
-              // //返回前释放锁
-              // pthread_rwlock_unlock(&cur->alex_rwlock);
-              // unlock_traversal_path(*traversal_path);
 
               return leaf->prev_leaf_;
             }
@@ -515,18 +518,11 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
                 // Correct the traversal path
                 correct_traversal_path(leaf, *traversal_path, false);
               }
-              // //释放锁
-              // pthread_rwlock_unlock(&cur->alex_rwlock);
-              // unlock_traversal_path(*traversal_path);
-              
+
               return leaf->next_leaf_;
             }
           }
         }
-        // //释放锁
-        // pthread_rwlock_unlock(&cur->alex_rwlock);
-        // unlock_traversal_path(*traversal_path);
-
         return leaf;
       }//返回查找的叶子结点
     }
@@ -539,14 +535,16 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     }
     AlexNode<T, P>* cur = root_node_;
     //分裂节点回溯时全加锁
-    if(IF_SPLIT == 1){
-      //获取新结点的锁
-      //pthread_rwlock_wrlock(&cur->alex_rwlock);
-      if ( pthread_rwlock_trywrlock(&cur->alex_rwlock)/*失败返回-1*/){
-        //unlock_traversal_path(traversal_path);
-        return NULL; //失败结点返回NULL
-      }
-    }
+    //#if PATTERN == 1
+      //if (IF_SPLIT == 1){
+        //获取新结点的锁
+        // while (pthread_rwlock_trywrlock(&cur->alex_rwlock) != 0/*失败返回-1*/){
+        //   #if DEBUG == 1 
+        //     std::cout << "trylock--get_leaf--pos1" << std::endl;
+        //   #endif
+        // }
+      //}
+    //#endif
 
     while (!cur->is_leaf_) {
       auto node = static_cast<model_node_type*>(cur);
@@ -558,14 +556,17 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
       }
       cur = node->children_[bucketID];
       //分裂节点回溯时全加锁
-      if(IF_SPLIT == 1){
-        //获取新结点的锁
-        //pthread_rwlock_wrlock(&cur->alex_rwlock);
-        if (pthread_rwlock_trywrlock(&cur->alex_rwlock) /*失败返回-1*/){
-          //unlock_traversal_path(traversal_path);
-          return NULL; //失败结点返回NULL
-        }
-      }
+      //#if PATTERN == 1
+        //if(IF_SPLIT == 1){
+          //获取新结点的锁
+          //pthread_rwlock_wrlock(&cur->alex_rwlock);
+          // while (pthread_rwlock_trywrlock(&cur->alex_rwlock) != 0/*失败返回-1*/){
+          //   #if DEBUG == 1 
+          //     std::cout << "trylock--get_leaf--pos2" << std::endl;
+          //   #endif
+          // }
+        //}
+      //#endif
 
     }
 
@@ -573,7 +574,6 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     // //释放锁
     // pthread_rwlock_unlock(&cur->alex_rwlock);
     // unlock_traversal_path(traversal_path);
-
     return static_cast<data_node_type*>(cur);
   }
 #endif
@@ -1086,15 +1086,24 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
   P* get_payload(const T& key) const {
     stats_.num_lookups++;
     data_node_type* leaf = get_leaf(key);
-    /////////////////////////////////////////pthread///////////////////////////////////////////////////////////////
-    if(pthread_rwlock_tryrdlock(&leaf->alex_rwlock)/*失败返回-1*/){
-      return nullptr;//失败结点返回NULL
-    }
-    //pthread_rwlock_rdlock(&leaf->alex_rwlock);
-    //std::cout<<" rdlock "<<stats_.num_lookups<<std::endl;
-    int idx = leaf->find_key(key);
-    pthread_rwlock_unlock(&leaf->alex_rwlock);
-    /////////////////////////////////////////pthread///////////////////////////////////////////////////////////////
+    
+    #if PATTERN == 1
+      //////////////////pthread//////////////////
+      while (pthread_rwlock_tryrdlock(&leaf->alex_rwlock) != 0/*失败返回-1*/){
+        #if DEBUG == 1 
+          std::cout << "trylock--get_payload--pos-rd" << std::endl;
+        #endif
+      }
+      int idx = leaf->find_key(key);
+      pthread_rwlock_unlock(&leaf->alex_rwlock);
+      //////////////////pthread/////////////////
+    #elif PATTERN == 2
+      //openMP
+      int idx = leaf->find_key(key);
+    #else
+      int idx = leaf->find_key(key);
+    #endif
+    
     if (idx < 0) {
       return nullptr;
     } else {
@@ -1259,15 +1268,35 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     data_node_type* leaf = get_leaf(key);
 
     // Nonzero fail flag means that the insert did not happen
-    ///////////////////////////////////////////////////pthread-wrlock//////////////////////////////////////////////
-    if(pthread_rwlock_trywrlock(&leaf->alex_rwlock)){
-      return {Iterator(leaf, -1), false};//{Iterator(),-1};
-    }
-    //pthread_rwlock_wrlock(&leaf->alex_rwlock);
-    //std::cout<<" wrlock "<<stats_.num_inserts<<std::endl;
-    std::pair<int, int> ret = leaf->insert(key, payload);
-    pthread_rwlock_unlock(&leaf->alex_rwlock);
-    ///////////////////////////////////////////////////pthread-wrlock//////////////////////////////////////////////
+    #if PATTERN == 1
+      /////////////////////pthread-wrlock////////////////
+
+      //待解决问题
+      // while (pthread_rwlock_trywrlock(&leaf->alex_rwlock) != 0){
+      //   #if DEBUG == 1 
+      //     std::cout << "trylock--get_payload--pos--wr" <<std::endl;
+      //   #endif
+      // }
+      if(pthread_rwlock_trywrlock(&leaf->alex_rwlock)/*失败返回-1*/){
+        return {Iterator(leaf, -1), false};//失败结点返回NULL
+      }
+      //待解决问题
+
+      std::pair<int, int> ret = leaf->insert(key, payload);
+      pthread_rwlock_unlock(&leaf->alex_rwlock);
+      /////////////////////pthread-wrlock////////////////
+    #elif PATTERN == 2
+      //openMP
+      std::pair<int, int> ret = leaf->insert(key, payload);
+      #if DEBUG == 2
+        std::cout << "openmp-insert" << std::endl;
+      #endif
+
+
+    #else
+      std::pair<int, int> ret = leaf->insert(key, payload);
+    #endif
+
     int fail = ret.first;
     int insert_pos = ret.second;
     if (fail == -1) {
@@ -1278,26 +1307,25 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     // If no insert, figure out what to do with the data node to decrease the
     // cost
     if (fail) {
-
-      //std::cout<<" enter_fail "<<std::endl;
+      #if DEBUG != 0 
+        std::cout<<"insert_fail_start_split"<<std::endl;
+      #endif
 
       std::vector<TraversalNode> traversal_path;
+      #if PATTERN == 1
+        lock_traversal_path(&traversal_path);
+
+      #elif PATTERN == 2
+        //openMP
+
+
+
+
+
+      #else
+      #endif
+
       get_leaf(key, &traversal_path);
-
-      //std::cout<<" get_leaf "<<std::endl;
-      if(IF_SPLIT == -1){
-            IF_SPLIT = 1;
-            //try_IF_SPLIT();//修改ifsplit为1
-      }
-
-      //std::cout<<" try_IF_SPLIT "<<IF_SPLIT<<std::endl;
-
-      int success_lock = lock_traversal_path(&traversal_path);///////////////////////////分裂前整条路径加锁///////////////////////////
-      
-      //std::cout<<" success "<<success_lock<<std::endl;
-      if(success_lock == -1){
-        return {Iterator(),-1};
-      }
 
       model_node_type* parent = traversal_path.back().node;
 
@@ -1394,12 +1422,21 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
         insert_pos = ret.second;
         if (fail == -1) {
           // Duplicate found and duplicates not allowed
-          ///////////////////////////////////////////////解锁路径///////////////////////////////////////////////////
-          unlock_traversal_path(&traversal_path);
-          if(IF_SPLIT == 1){
-            IF_SPLIT = -1;
-            //try_IF_SPLIT();//修改ifsplit为false
-          }
+          #if PATTERN == 1
+            ////////////////////////////解锁路径/////////////////////////
+            unlock_traversal_path(&traversal_path);
+          #elif PATTERN == 2
+            //openMP
+
+
+
+
+
+
+
+
+
+          #endif
 
           //std::cout<<" Try again return"<<std::endl;
           return {Iterator(leaf, insert_pos), false};
@@ -1407,15 +1444,22 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
         
       //std::cout<<" while end"<<std::endl;
       }
+
+      #if PATTERN == 1
+        unlock_traversal_path(&traversal_path);
+      #elif PATTERN == 2
+        //openMP
+
+
+
+
+
+      #else
+      #endif
     }
     stats_.num_inserts++;
     stats_.num_keys++;
-    // unlock_traversal_path(&traversal_path);///////////////////////////////////////////////解锁路径///////////////////////////////////////////////////
-    if(IF_SPLIT == 1){
-      IF_SPLIT = -1;
-      //try_IF_SPLIT();//修改ifsplit为false
-    }
-    //std::cout<<" try_IF_SPLIT turn "<<std::endl;
+
     return {Iterator(leaf, insert_pos), true};
   }
 
