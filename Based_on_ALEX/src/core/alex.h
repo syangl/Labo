@@ -1099,7 +1099,14 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
       //////////////////pthread/////////////////
     #elif PATTERN == 2
       //openMP
-      int idx = leaf->find_key(key);
+      int idx = 0;
+      #pragma omp critical
+        {
+          #if DEBUG == 2 
+            std::cout << "omp_get_thread_num()" <<omp_get_thread_num()<< std::endl;
+          #endif
+          idx = leaf->find_key(key);
+        }
     #else
       int idx = leaf->find_key(key);
     #endif
@@ -1287,9 +1294,19 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
       /////////////////////pthread-wrlock////////////////
     #elif PATTERN == 2
       //openMP
-      std::pair<int, int> ret = leaf->insert(key, payload);
       #if DEBUG == 2
-        std::cout << "openmp-insert" << std::endl;
+        std::cout << "start openmp-insert" << std::endl;
+      #endif
+      std::pair<int, int> ret;
+      #pragma omp critical
+        {
+          #if DEBUG == 2 
+            std::cout << "omp_get_thread_num()" <<omp_get_thread_num()<< std::endl;
+          #endif
+          ret = leaf->insert(key, payload);
+        }
+      #if DEBUG == 2
+        std::cout << "end openmp-insert" << std::endl;
       #endif
 
 
@@ -1307,154 +1324,267 @@ inline int lock_traversal_path(std::vector<TraversalNode>* traversal_path) const
     // If no insert, figure out what to do with the data node to decrease the
     // cost
     if (fail) {
+      //FAIL_COUNT++;
       #if DEBUG != 0 
         std::cout<<"insert_fail_start_split"<<std::endl;
       #endif
 
-      std::vector<TraversalNode> traversal_path;
-      #if PATTERN == 1
-        lock_traversal_path(&traversal_path);
+      #if PATTERN == 2
+        #pragma omp critical
+          {
+            std::vector<TraversalNode> traversal_path;
+            get_leaf(key, &traversal_path);
+            model_node_type* parent = traversal_path.back().node;
+            while (fail)
+            {
+              auto start_time = std::chrono::high_resolution_clock::now();
+              stats_.num_expand_and_scales += leaf->num_resizes_;
 
-      #elif PATTERN == 2
-        //openMP
+              if (parent == superroot_)
+              {
+                update_superroot_key_domain();
+              }
+              int bucketID = parent->model_.predict(key);
+              bucketID = std::min<int>(std::max<int>(bucketID, 0),
+                                       parent->num_children_ - 1);
+              std::vector<fanout_tree::FTNode> used_fanout_tree_nodes;
 
-
-
-
-
-      #else
-      #endif
-
-      get_leaf(key, &traversal_path);
-
-      model_node_type* parent = traversal_path.back().node;
-
-      while (fail) {
-        //std::cout<<" while (fail) "<<std::endl;
-
-        auto start_time = std::chrono::high_resolution_clock::now();
-        stats_.num_expand_and_scales += leaf->num_resizes_;
-
-        if (parent == superroot_) {
-          update_superroot_key_domain();
-        }
-        int bucketID = parent->model_.predict(key);
-        bucketID = std::min<int>(std::max<int>(bucketID, 0),
-                                 parent->num_children_ - 1);
-        std::vector<fanout_tree::FTNode> used_fanout_tree_nodes;
-
-        int fanout_tree_depth = 1;
-        if (experimental_params_.splitting_policy_method == 0 || fail >= 2) {
-          // always split in 2. No extra work required here
-        } else if (experimental_params_.splitting_policy_method == 1) {
-          // decide between no split (i.e., expand and retrain) or splitting in
-          // 2
-          fanout_tree_depth = fanout_tree::find_best_fanout_existing_node<T, P>(
-              parent, bucketID, stats_.num_keys, used_fanout_tree_nodes, 2);
-        } else if (experimental_params_.splitting_policy_method == 2) {
-          // use full fanout tree to decide fanout
-          fanout_tree_depth = fanout_tree::find_best_fanout_existing_node<T, P>(
-              parent, bucketID, stats_.num_keys, used_fanout_tree_nodes,
-              derived_params_.max_fanout);
-        }
-        int best_fanout = 1 << fanout_tree_depth;
-        stats_.cost_computation_time +=
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::high_resolution_clock::now() - start_time)
-                .count();
-
-        if (fanout_tree_depth == 0) {
-          // expand existing data node and retrain model
-          leaf->resize(data_node_type::kMinDensity_, true,
-                       leaf->is_append_mostly_right(),
-                       leaf->is_append_mostly_left());
-          fanout_tree::FTNode& tree_node = used_fanout_tree_nodes[0];
-          leaf->cost_ = tree_node.cost;
-          leaf->expected_avg_exp_search_iterations_ =
-              tree_node.expected_avg_search_iterations;
-          leaf->expected_avg_shifts_ = tree_node.expected_avg_shifts;
-          leaf->reset_stats();
-          stats_.num_expand_and_retrains++;
-        } else {
-          // split data node: always try to split sideways/upwards, only split
-          // downwards if necessary
-          bool reuse_model = (fail == 3);
-          if (experimental_params_.allow_splitting_upwards) {
-            // allow splitting upwards
-            assert(experimental_params_.splitting_policy_method != 2);
-            int stop_propagation_level = best_split_propagation(traversal_path);
-            if (stop_propagation_level <= superroot_->level_) {
-              parent = split_downwards(parent, bucketID, fanout_tree_depth,
-                                       used_fanout_tree_nodes, reuse_model);
-            } else {
-              split_upwards(key, stop_propagation_level, traversal_path,
-                            reuse_model, &parent);
-            }
-          } else {
-            // either split sideways or downwards
-            bool should_split_downwards =
-                (parent->num_children_ * best_fanout /
-                         (1 << leaf->duplication_factor_) >
-                     derived_params_.max_fanout ||
-                 parent->level_ == superroot_->level_);
-            if (should_split_downwards) {
-              parent = split_downwards(parent, bucketID, fanout_tree_depth,
-                                       used_fanout_tree_nodes, reuse_model);
-            } else {
-              split_sideways(parent, bucketID, fanout_tree_depth,
-                             used_fanout_tree_nodes, reuse_model);
+              int fanout_tree_depth = 1;
+              if (experimental_params_.splitting_policy_method == 0 || fail >= 2)
+              {
+                // always split in 2. No extra work required here
+              }
+              else if (experimental_params_.splitting_policy_method == 1)
+              {
+                // decide between no split (i.e., expand and retrain) or splitting in
+                // 2
+                fanout_tree_depth = fanout_tree::find_best_fanout_existing_node<T, P>(
+                    parent, bucketID, stats_.num_keys, used_fanout_tree_nodes, 2);
+              }
+              else if (experimental_params_.splitting_policy_method == 2)
+              {
+                // use full fanout tree to decide fanout
+                fanout_tree_depth = fanout_tree::find_best_fanout_existing_node<T, P>(
+                    parent, bucketID, stats_.num_keys, used_fanout_tree_nodes,
+                    derived_params_.max_fanout);
+              }
+              int best_fanout = 1 << fanout_tree_depth;
+              stats_.cost_computation_time +=
+                  std::chrono::duration_cast<std::chrono::nanoseconds>(
+                      std::chrono::high_resolution_clock::now() - start_time)
+                      .count();
+              
+              if (fanout_tree_depth == 0)
+              {
+                // expand existing data node and retrain model
+                leaf->resize(data_node_type::kMinDensity_, true,
+                             leaf->is_append_mostly_right(),
+                             leaf->is_append_mostly_left());
+                fanout_tree::FTNode &tree_node = used_fanout_tree_nodes[0];
+                leaf->cost_ = tree_node.cost;
+                leaf->expected_avg_exp_search_iterations_ =
+                    tree_node.expected_avg_search_iterations;
+                leaf->expected_avg_shifts_ = tree_node.expected_avg_shifts;
+                leaf->reset_stats();
+                stats_.num_expand_and_retrains++;
+              }
+              else
+              {
+                // split data node: always try to split sideways/upwards, only split
+                // downwards if necessary
+                bool reuse_model = (fail == 3);
+                if (experimental_params_.allow_splitting_upwards)
+                {
+                  // allow splitting upwards
+                  assert(experimental_params_.splitting_policy_method != 2);
+                  int stop_propagation_level = best_split_propagation(traversal_path);
+                  if (stop_propagation_level <= superroot_->level_)
+                  {
+                    parent = split_downwards(parent, bucketID, fanout_tree_depth,
+                                             used_fanout_tree_nodes, reuse_model);
+                  }
+                  else
+                  {
+                    split_upwards(key, stop_propagation_level, traversal_path,
+                                  reuse_model, &parent);
+                  }
+                }
+                else
+                {
+                  // either split sideways or downwards
+                  bool should_split_downwards =
+                      (parent->num_children_ * best_fanout /
+                               (1 << leaf->duplication_factor_) >
+                           derived_params_.max_fanout ||
+                       parent->level_ == superroot_->level_);
+                  if (should_split_downwards)
+                  {
+                    parent = split_downwards(parent, bucketID, fanout_tree_depth,
+                                             used_fanout_tree_nodes, reuse_model);
+                  }
+                  else
+                  {
+                    split_sideways(parent, bucketID, fanout_tree_depth,
+                                   used_fanout_tree_nodes, reuse_model);
+                  }
+                }
+                leaf = static_cast<data_node_type *>(parent->get_child_node(key));
+              }
+              auto end_time = std::chrono::high_resolution_clock::now();
+              auto duration = end_time - start_time;
+              stats_.splitting_time +=
+                  std::chrono::duration_cast<std::chrono::nanoseconds>(duration)
+                      .count();
+              
+              ret = leaf->insert(key, payload);
+              fail = ret.first;
+              insert_pos = ret.second;
+              if (fail == -1)
+              {
+                // Duplicate found and duplicates not allowed
+                //return {Iterator(leaf, insert_pos), false};
+                break;
+              }
             }
           }
-          leaf = static_cast<data_node_type*>(parent->get_child_node(key));
-        }
-        auto end_time = std::chrono::high_resolution_clock::now();
-        auto duration = end_time - start_time;
-        stats_.splitting_time +=
-            std::chrono::duration_cast<std::chrono::nanoseconds>(duration)
-                .count();
-
-        // Try again to insert the key
-
-        //std::cout<<" Try again "<<std::endl;
-
-        ret = leaf->insert(key, payload);
-        fail = ret.first;
-        insert_pos = ret.second;
-        if (fail == -1) {
-          // Duplicate found and duplicates not allowed
-          #if PATTERN == 1
-            ////////////////////////////解锁路径/////////////////////////
-            unlock_traversal_path(&traversal_path);
-          #elif PATTERN == 2
-            //openMP
-
-
-
-
-
-
-
-
-
-          #endif
-
-          //std::cout<<" Try again return"<<std::endl;
-          return {Iterator(leaf, insert_pos), false};
-        }
+        return {Iterator(leaf, insert_pos), false};
         
-      //std::cout<<" while end"<<std::endl;
-      }
-
-      #if PATTERN == 1
-        unlock_traversal_path(&traversal_path);
-      #elif PATTERN == 2
-        //openMP
-
-
-
-
-
       #else
+        std::vector<TraversalNode> traversal_path;
+        #if PATTERN == 1
+        lock_traversal_path(&traversal_path);
+        #else
+        #endif
+
+        get_leaf(key, &traversal_path);
+
+        model_node_type* parent = traversal_path.back().node;
+
+        while (fail)
+        {
+          // std::cout<<" while (fail) "<<std::endl;
+
+          auto start_time = std::chrono::high_resolution_clock::now();
+          stats_.num_expand_and_scales += leaf->num_resizes_;
+
+          if (parent == superroot_)
+          {
+            update_superroot_key_domain();
+          }
+          int bucketID = parent->model_.predict(key);
+          bucketID = std::min<int>(std::max<int>(bucketID, 0),
+                                   parent->num_children_ - 1);
+          std::vector<fanout_tree::FTNode> used_fanout_tree_nodes;
+
+          int fanout_tree_depth = 1;
+          if (experimental_params_.splitting_policy_method == 0 || fail >= 2)
+          {
+            // always split in 2. No extra work required here
+          }
+          else if (experimental_params_.splitting_policy_method == 1)
+          {
+            // decide between no split (i.e., expand and retrain) or splitting in
+            // 2
+            fanout_tree_depth = fanout_tree::find_best_fanout_existing_node<T, P>(
+                parent, bucketID, stats_.num_keys, used_fanout_tree_nodes, 2);
+          }
+          else if (experimental_params_.splitting_policy_method == 2)
+          {
+            // use full fanout tree to decide fanout
+            fanout_tree_depth = fanout_tree::find_best_fanout_existing_node<T, P>(
+                parent, bucketID, stats_.num_keys, used_fanout_tree_nodes,
+                derived_params_.max_fanout);
+          }
+          int best_fanout = 1 << fanout_tree_depth;
+          stats_.cost_computation_time +=
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  std::chrono::high_resolution_clock::now() - start_time)
+                  .count();
+
+          if (fanout_tree_depth == 0)
+          {
+            // expand existing data node and retrain model
+            leaf->resize(data_node_type::kMinDensity_, true,
+                         leaf->is_append_mostly_right(),
+                         leaf->is_append_mostly_left());
+            fanout_tree::FTNode &tree_node = used_fanout_tree_nodes[0];
+            leaf->cost_ = tree_node.cost;
+            leaf->expected_avg_exp_search_iterations_ =
+                tree_node.expected_avg_search_iterations;
+            leaf->expected_avg_shifts_ = tree_node.expected_avg_shifts;
+            leaf->reset_stats();
+            stats_.num_expand_and_retrains++;
+          }
+          else
+          {
+            // split data node: always try to split sideways/upwards, only split
+            // downwards if necessary
+            bool reuse_model = (fail == 3);
+            if (experimental_params_.allow_splitting_upwards)
+            {
+              // allow splitting upwards
+              assert(experimental_params_.splitting_policy_method != 2);
+              int stop_propagation_level = best_split_propagation(traversal_path);
+              if (stop_propagation_level <= superroot_->level_)
+              {
+                parent = split_downwards(parent, bucketID, fanout_tree_depth,
+                                         used_fanout_tree_nodes, reuse_model);
+              }
+              else
+              {
+                split_upwards(key, stop_propagation_level, traversal_path,
+                              reuse_model, &parent);
+              }
+            }
+            else
+            {
+              // either split sideways or downwards
+              bool should_split_downwards =
+                  (parent->num_children_ * best_fanout /
+                           (1 << leaf->duplication_factor_) >
+                       derived_params_.max_fanout ||
+                   parent->level_ == superroot_->level_);
+              if (should_split_downwards)
+              {
+                parent = split_downwards(parent, bucketID, fanout_tree_depth,
+                                         used_fanout_tree_nodes, reuse_model);
+              }
+              else
+              {
+                split_sideways(parent, bucketID, fanout_tree_depth,
+                               used_fanout_tree_nodes, reuse_model);
+              }
+            }
+            leaf = static_cast<data_node_type *>(parent->get_child_node(key));
+          }
+          auto end_time = std::chrono::high_resolution_clock::now();
+          auto duration = end_time - start_time;
+          stats_.splitting_time +=
+              std::chrono::duration_cast<std::chrono::nanoseconds>(duration)
+                  .count();
+
+          // Try again to insert the key
+
+          // std::cout<<" Try again "<<std::endl;
+
+          ret = leaf->insert(key, payload);
+          fail = ret.first;
+          insert_pos = ret.second;
+          if (fail == -1)
+          {
+            // Duplicate found and duplicates not allowed
+            #if PATTERN == 1
+              ////////////////////////////解锁路径/////////////////////////
+              unlock_traversal_path(&traversal_path);
+            #endif
+            return {Iterator(leaf, insert_pos), false};
+          }
+        }
+
+        #if PATTERN == 1
+          unlock_traversal_path(&traversal_path);
+        #else
+        #endif
       #endif
     }
     stats_.num_inserts++;

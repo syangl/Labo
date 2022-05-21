@@ -115,6 +115,10 @@ void* thread(void* param){
 ////////////////////////////////////////////////////////////main//////////////////////////////////////////////////
 int main(int argc, char* argv[]) {
 
+  //int test_thread = 2;
+  //std::cin>>test_thread;
+  std::cout<<"---thread num is :"<<thread_num<<std::endl;
+
   auto flags = parse_flags(argc, argv);
   std::string keys_file_path = get_required(flags, "keys_file");
   std::string keys_file_type = get_required(flags, "keys_file_type");
@@ -240,13 +244,15 @@ int main(int argc, char* argv[]) {
   //do inserts
   std::cout << "------------ start openMP insert ----------- " << std::endl;
     auto insert_start_time = std::chrono::high_resolution_clock::now();
-    #pragma omp parallel num_threads(thread_num)
-      {
-        #pragma omp for
-          for (int i = init_num_keys; i < total_num_keys; i++){
-            alex_index.insert(keys[i], static_cast<PAYLOAD_TYPE>(gen_payload()));
-          }
+
+    #pragma omp parallel for num_threads(thread_num)
+      for (int i = init_num_keys; i < total_num_keys; i++){
+        // #if DEBUG == 2
+        //   std::cout<<"insert for-"<<std::endl;
+        // #endif
+        //alex_index.insert(keys[i], static_cast<PAYLOAD_TYPE>(gen_payload()));
       }
+
     auto insert_end_time = std::chrono::high_resolution_clock::now();
     double insert_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(insert_end_time - insert_start_time).count();
@@ -261,24 +267,18 @@ int main(int argc, char* argv[]) {
     PAYLOAD_TYPE ret_search;
     PAYLOAD_TYPE *payload;
     auto read_start_time = std::chrono::high_resolution_clock::now();
-
-    int count = 0;
-    #pragma omp parallel num_threads(thread_num), private(count)
-      {
-        #pragma omp for 
-        for (int i = 0; i < total_num_keys; i++){
-          #if DEBUG == 2
-            count++;
-          #endif
-          payload = alex_index.get_payload(keys[i]);
-          if (payload)
-          ret_search = *payload;
-        }
-        #if DEBUG == 2
-          std::cout<<count<<std::endl;
-        #endif
+    //int count = 0; 
+    #pragma omp parallel for num_threads(thread_num)//,private(count)
+      for (int i = 0; i < total_num_keys; i++){
+        // #if DEBUG == 2
+        // #endif
+        //count++;
+	//std::cout<<count<<"---id"<<omp_get_thread_num()<<std::endl;
+        payload = alex_index.get_payload(keys[i]);
+        if (payload)
+        ret_search = *payload;
       }
-    
+   
     auto read_end_time = std::chrono::high_resolution_clock::now();
     double read_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(read_end_time - read_start_time).count();
@@ -290,20 +290,12 @@ int main(int argc, char* argv[]) {
 
 
 
-
-
 #endif
-
+  std::cout << "fail_num: " << FAIL_COUNT << std::endl;
   delete[] keys;
   delete[] values;
 }
 
 
 
-/**还需要进行的工作
- * 解决pthread写锁段错误（alex.h中查找“待解决问题”处）
- * 问题解决后重新测试可扩展性，确认服务器核心数（
- * 一个线程内既读又写，顺序不重要，测总时间和总吞吐率，可扩展性是吞吐率关于线程数的函数，trylock失败应该一直尝试
- * ）
- * 放开root，找其他分裂同步策略
- **/
+
